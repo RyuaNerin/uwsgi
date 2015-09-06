@@ -61,9 +61,9 @@ PyObject *py_uwsgi_spit(PyObject * self, PyObject * args) {
 	PyObject *zero = NULL;
 	PyObject *zero2 = NULL;
 		if (self != Py_None) {
-			zero = PyUnicode_AsLatin1String(head);
+			zero = PyUnicode_AsUTF8String(head);
 			if (!zero) {
-				return PyErr_Format(PyExc_TypeError, "http status string must be encodable in latin1");
+				return PyErr_Format(PyExc_TypeError, "http status string must be encodable in utf-8");
 			}
 			status_line = PyBytes_AsString(zero);
 			status_line_len = PyBytes_Size(zero);
@@ -135,9 +135,9 @@ PyObject *py_uwsgi_spit(PyObject * self, PyObject * args) {
 
 #ifdef PYTHREE
 		if (self != Py_None) {
-			zero = PyUnicode_AsLatin1String(h_key);
+			zero = PyUnicode_AsUTF8String(h_key);
 			if (!zero) {
-				return PyErr_Format(PyExc_TypeError, "http header must be encodable in latin1");
+				return PyErr_Format(PyExc_TypeError, "http header must be encodable in utf-8");
 			}
 			k = PyBytes_AsString(zero);
 			kl = PyBytes_Size(zero);
@@ -153,9 +153,9 @@ PyObject *py_uwsgi_spit(PyObject * self, PyObject * args) {
 
 #ifdef PYTHREE
 		if (self != Py_None) {
-			zero2 = PyUnicode_AsLatin1String(h_value);
+			zero2 = PyUnicode_AsUTF8String(h_value);
 			if (!zero2) {
-				return PyErr_Format(PyExc_TypeError, "http header must be encodable in latin1");
+				return PyErr_Format(PyExc_TypeError, "http header must be encodable in utf-8");
 			}
 			v = PyBytes_AsString(zero2);
 			vl = PyBytes_Size(zero2);

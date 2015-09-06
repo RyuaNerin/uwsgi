@@ -16,7 +16,7 @@ int PyFrame_GetLineNumber(PyFrameObject *frame) {
 #ifdef PYTHREE
 #undef PyString_AsString
 static char *PyString_AsString(PyObject *o) {
-	PyObject *zero = PyUnicode_AsLatin1String(o);
+	PyObject *zero = PyUnicode_AsUTF8String(o);
 	if (!zero) return "";
         return PyBytes_AsString(zero);
 }
