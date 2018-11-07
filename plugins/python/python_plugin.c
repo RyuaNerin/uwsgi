@@ -203,6 +203,10 @@ struct uwsgi_option uwsgi_python_options[] = {
 	{"early-python-path", required_argument, 0, "add directory (or glob) to pythonpath (immediate version)", uwsgi_opt_pythonpath, NULL,  UWSGI_OPT_IMMEDIATE},
 	{"python-worker-override", required_argument, 0, "override worker with the specified python script", uwsgi_opt_set_str, &up.worker_override, 0},
 
+	{"wsgi-manage-chunked-input", no_argument, 0, "manage chunked input via the wsgi.input_terminated extension", uwsgi_opt_true, &up.wsgi_manage_chunked_input, 0},
+
+	{"py-master-check-signals", no_argument, 0, "enable python signal handlers in master", uwsgi_opt_true, &up.master_check_signals, 0},
+
 	{0, 0, 0, 0, 0, 0, 0},
 };
 
@@ -242,6 +246,10 @@ int uwsgi_python_init() {
 	}
 
 	if (up.home != NULL) {
+		if (!uwsgi_is_dir(up.home)) {
+			uwsgi_log("Python Home is not a directory: %s\n", up.home);
+			exit(1);
+		}
 #ifdef PYTHREE
 		// check for PEP 405 virtualenv (starting from python 3.3)
 		char *pep405_env = uwsgi_concat2(up.home, "/pyvenv.cfg");
@@ -423,7 +431,11 @@ void uwsgi_python_post_fork() {
 
 	// reset python signal flags so child processes can trap signals
 	if (up.call_osafterfork) {
+#ifdef HAS_NOT_PyOS_AfterFork_Child
 		PyOS_AfterFork();
+#else
+                PyOS_AfterFork_Child();
+#endif
 	}
 
 	uwsgi_python_reset_random_seed();
@@ -915,12 +927,6 @@ void init_uwsgi_embedded_module() {
 		}
 	}
 
-	up.embedded_args = PyTuple_New(2);
-	if (!up.embedded_args) {
-		PyErr_Print();
-		exit(1);
-	}
-
 	init_uwsgi_module_advanced(new_uwsgi_module);
 
 	if (uwsgi.spoolers) {
@@ -1084,16 +1090,19 @@ void uwsgi_python_destroy_env_cheat(struct wsgi_request *wsgi_req) {
 void *uwsgi_python_create_env_holy(struct wsgi_request *wsgi_req, struct uwsgi_app *wi) {
 	wsgi_req->async_args = PyTuple_New(2);
 	// set start_response()
+	Py_INCREF(Py_None);
 	Py_INCREF(up.wsgi_spitout);
+	PyTuple_SetItem((PyObject *)wsgi_req->async_args, 0, Py_None);
 	PyTuple_SetItem((PyObject *)wsgi_req->async_args, 1, up.wsgi_spitout);
 	PyObject *env = PyDict_New();
 	return env;
 }
 
 void uwsgi_python_destroy_env_holy(struct wsgi_request *wsgi_req) {
-	// in non-multithread modes, we set uwsgi.env incrementing the refcount of the environ
 	if (uwsgi.threads < 2) {
-		Py_DECREF((PyObject *)wsgi_req->async_environ);
+		// in non-multithread modes, we set uwsgi.env, so let's remove it now
+		// to equalise the refcount of the environ
+		PyDict_DelItemString(up.embedded_dict, "env");
 	}
 	Py_DECREF((PyObject *) wsgi_req->async_args);
 	Py_DECREF((PyObject *)wsgi_req->async_environ);
@@ -1522,6 +1531,7 @@ void *uwsgi_python_autoreloader_thread(void *interpreter) {
 			if (!PyObject_HasAttrString(mod, "__file__")) continue;
 			PyObject *mod_file = PyObject_GetAttrString(mod, "__file__");
 			if (!mod_file) continue;
+			if (mod_file == Py_None) continue;
 #ifdef PYTHREE
 			PyObject *zero = PyUnicode_AsUTF8String(mod_file);
 			char *mod_filename = PyString_AsString(zero);
@@ -2031,7 +2041,11 @@ static int uwsgi_python_worker() {
 	UWSGI_GET_GIL;
 	// ensure signals can be used again from python
 	if (!up.call_osafterfork)
+#ifdef HAS_NOT_PyOS_AfterFork_Child
 		PyOS_AfterFork();
+#else
+                PyOS_AfterFork_Child();
+#endif
 	FILE *pyfile = fopen(up.worker_override, "r");
 	if (!pyfile) {
 		uwsgi_error_open(up.worker_override);
@@ -2040,6 +2054,23 @@ static int uwsgi_python_worker() {
 	PyRun_SimpleFile(pyfile, up.worker_override);
 	return 1;
 }
+
+static void uwsgi_python_master_cycle() {
+	if (up.master_check_signals) {
+                UWSGI_GET_GIL;
+
+                // run python signal handlers if any scheduled
+                if (PyErr_CheckSignals()) {
+			uwsgi_log("exception in python signal handler\n");
+			PyErr_Print();
+			UWSGI_RELEASE_GIL;
+			exit(1);
+		}
+
+		UWSGI_RELEASE_GIL;
+	}
+}
+
 
 struct uwsgi_plugin python_plugin = {
 	.name = "python",
@@ -2056,6 +2087,7 @@ struct uwsgi_plugin python_plugin = {
 
 	.fixup = uwsgi_python_fixup,
 	.master_fixup = uwsgi_python_master_fixup,
+	.master_cycle = uwsgi_python_master_cycle,
 
 	.mount_app = uwsgi_python_mount_app,
 

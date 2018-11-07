@@ -30,6 +30,14 @@
 #define HAS_NO_ERRORS_IN_PyFile_FromFd
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 7
+#define HAS_NOT_PyOS_AfterFork_Child
+#endif
+
+#if PY_MAJOR_VERSION < 3
+#define HAS_NOT_PyOS_AfterFork_Child
+#endif
+
 #if PY_MAJOR_VERSION > 2
 #define PYTHREE
 #endif
@@ -183,7 +191,6 @@ struct uwsgi_python {
 
 	PyObject *workers_tuple;
 	PyObject *embedded_dict;
-	PyObject *embedded_args;
 
 	char *wsgi_env_behaviour;
 
@@ -221,6 +228,10 @@ struct uwsgi_python {
 	int wsgi_disable_file_wrapper;
 
 	char *worker_override;
+
+	int wsgi_manage_chunked_input;
+
+	int master_check_signals;
 };
 
 

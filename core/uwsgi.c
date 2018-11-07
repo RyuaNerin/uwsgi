@@ -2,7 +2,7 @@
 
  *** uWSGI ***
 
- Copyright (C) 2009-2016 Unbit S.a.s. <info@unbit.it>
+ Copyright (C) 2009-2017 Unbit S.a.s. <info@unbit.it>
 
  This program is free software; you can redistribute it and/or
  modify it under the terms of the GNU General Public License
@@ -80,6 +80,7 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"processes", required_argument, 'p', "spawn the specified number of workers/processes", uwsgi_opt_set_int, &uwsgi.numproc, 0},
 	{"workers", required_argument, 'p', "spawn the specified number of workers/processes", uwsgi_opt_set_int, &uwsgi.numproc, 0},
 	{"thunder-lock", no_argument, 0, "serialize accept() usage (if possible)", uwsgi_opt_true, &uwsgi.use_thunder_lock, 0},
+	{"thunder-lock-watchdog", no_argument, 0, "watchdog for buggy pthread robust mutexes", uwsgi_opt_true, &uwsgi.use_thunder_lock_watchdog, 0},
 	{"harakiri", required_argument, 't', "set harakiri timeout", uwsgi_opt_set_int, &uwsgi.harakiri_options.workers, 0},
 	{"harakiri-verbose", no_argument, 0, "enable verbose mode for harakiri", uwsgi_opt_true, &uwsgi.harakiri_verbose, 0},
 	{"harakiri-no-arh", no_argument, 0, "do not enable harakiri during after-request-hook", uwsgi_opt_true, &uwsgi.harakiri_no_arh, 0},
@@ -106,7 +107,7 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"declare-option", required_argument, 0, "declare a new uWSGI custom option", uwsgi_opt_add_custom_option, NULL, UWSGI_OPT_IMMEDIATE},
 	{"declare-option2", required_argument, 0, "declare a new uWSGI custom option (non-immediate)", uwsgi_opt_add_custom_option, NULL, 0},
 
-	{"resolve", required_argument, 0, "place the result of a dns query in the specified placeholder, sytax: placeholder=name (immediate option)", uwsgi_opt_resolve, NULL, UWSGI_OPT_IMMEDIATE},
+	{"resolve", required_argument, 0, "place the result of a dns query in the specified placeholder, syntax: placeholder=name (immediate option)", uwsgi_opt_resolve, NULL, UWSGI_OPT_IMMEDIATE},
 
 	{"for", required_argument, 0, "(opt logic) for cycle", uwsgi_opt_logic, (void *) uwsgi_logic_opt_for, UWSGI_OPT_IMMEDIATE},
 	{"for-glob", required_argument, 0, "(opt logic) for cycle (expand glob)", uwsgi_opt_logic, (void *) uwsgi_logic_opt_for_glob, UWSGI_OPT_IMMEDIATE},
@@ -181,7 +182,7 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"connect-and-read", required_argument, 0, "connect to a socket and wait for data from it", uwsgi_opt_connect_and_read, NULL, UWSGI_OPT_IMMEDIATE},
 	{"extract", required_argument, 0, "fetch/dump any supported address to stdout", uwsgi_opt_extract, NULL, UWSGI_OPT_IMMEDIATE},
 
-	{"listen", required_argument, 'l', "set the socket listen queue size", uwsgi_opt_set_int, &uwsgi.listen_queue, 0},
+	{"listen", required_argument, 'l', "set the socket listen queue size", uwsgi_opt_set_int, &uwsgi.listen_queue, UWSGI_OPT_IMMEDIATE},
 	{"max-vars", required_argument, 'v', "set the amount of internal iovec/vars structures", uwsgi_opt_max_vars, NULL, 0},
 	{"max-apps", required_argument, 0, "set the maximum number of per-worker applications", uwsgi_opt_set_int, &uwsgi.max_apps, 0},
 	{"buffer-size", required_argument, 'b', "set internal buffer size", uwsgi_opt_set_64bit, &uwsgi.buffer_size, 0},
@@ -209,6 +210,7 @@ static struct uwsgi_option uwsgi_base_options[] = {
 
 	{"single-interpreter", no_argument, 'i', "do not use multiple interpreters (where available)", uwsgi_opt_true, &uwsgi.single_interpreter, 0},
 	{"need-app", no_argument, 0, "exit if no app can be loaded", uwsgi_opt_true, &uwsgi.need_app, 0},
+	{"dynamic-apps", no_argument, 0, "allows apps to be dynamically loaded via uwsgi protocol", uwsgi_opt_true, &uwsgi.dynamic_apps, 0},
 	{"master", no_argument, 'M', "enable master process", uwsgi_opt_true, &uwsgi.master_process, 0},
 	{"honour-stdin", no_argument, 0, "do not remap stdin to /dev/null", uwsgi_opt_true, &uwsgi.honour_stdin, 0},
 	{"emperor", required_argument, 0, "run the Emperor", uwsgi_opt_add_string_list, &uwsgi.emperor, 0},
@@ -234,7 +236,7 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"emperor-command-socket", required_argument, 0, "enable the Emperor command socket", uwsgi_opt_set_str, &uwsgi.emperor_command_socket, 0},
 	{"emperor-wait-for-command", no_argument, 0, "always wait for a 'spawn' Emperor command before starting a vassal", uwsgi_opt_true, &uwsgi.emperor_wait_for_command, 0},
 	{"emperor-wait-for-command-ignore", required_argument, 0, "ignore the emperor-wait-for-command directive for the specified vassal", uwsgi_opt_add_string_list, &uwsgi.emperor_wait_for_command_ignore, 0},
-	{"early-emperor", no_argument, 0, "spawn the emperor as soon as possibile", uwsgi_opt_true, &uwsgi.early_emperor, 0},
+	{"early-emperor", no_argument, 0, "spawn the emperor as soon as possible", uwsgi_opt_true, &uwsgi.early_emperor, 0},
 	{"emperor-broodlord", required_argument, 0, "run the emperor in BroodLord mode", uwsgi_opt_set_int, &uwsgi.emperor_broodlord, 0},
 	{"emperor-throttle", required_argument, 0, "set throttling level (in milliseconds) for bad behaving vassals (default 1000)", uwsgi_opt_set_int, &uwsgi.emperor_throttle, 0},
 	{"emperor-max-throttle", required_argument, 0, "set max throttling level (in milliseconds) for bad behaving vassals (default 3 minutes)", uwsgi_opt_set_int, &uwsgi.emperor_max_throttle, 0},
@@ -696,13 +698,13 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"start-unsubscribed", no_argument, 0, "configure subscriptions but do not send them (useful with master fifo)", uwsgi_opt_true, &uwsgi.subscriptions_blocked, 0},
 	{"subscription-clear-on-shutdown", no_argument, 0, "force clear instead of unsubscribe during shutdown", uwsgi_opt_true, &uwsgi.subscription_clear_on_shutdown, 0},
 
-	{"subscribe-with-modifier1", required_argument, 0, "force the specififed modifier1 when subscribing", uwsgi_opt_set_str, &uwsgi.subscribe_with_modifier1, UWSGI_OPT_MASTER},
+	{"subscribe-with-modifier1", required_argument, 0, "force the specified modifier1 when subscribing", uwsgi_opt_set_str, &uwsgi.subscribe_with_modifier1, UWSGI_OPT_MASTER},
 
 	{"snmp", optional_argument, 0, "enable the embedded snmp server", uwsgi_opt_snmp, NULL, 0},
 	{"snmp-community", required_argument, 0, "set the snmp community string", uwsgi_opt_snmp_community, NULL, 0},
 #ifdef UWSGI_SSL
 	{"ssl-verbose", no_argument, 0, "be verbose about SSL errors", uwsgi_opt_true, &uwsgi.ssl_verbose, 0},
-	{"ssl-verify-depth", optional_argument, 0, "set maximum certificate verification depth", uwsgi_opt_set_int, &uwsgi.ssl_verify_depth, 1},
+	{"ssl-verify-depth", optional_argument, 0, "set maximum certificate verification depth", uwsgi_opt_set_int, &uwsgi.ssl_verify_depth, 0},
 #ifdef UWSGI_SSL_SESSION_CACHE
 	// force master, as ssl sessions caching initialize locking early
 	{"ssl-sessions-use-cache", optional_argument, 0, "use uWSGI cache for ssl sessions storage", uwsgi_opt_set_str, &uwsgi.ssl_sessions_use_cache, UWSGI_OPT_MASTER},
@@ -714,7 +716,9 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"sni-dir", required_argument, 0, "check for cert/key/client_ca file in the specified directory and create a sni/ssl context on demand", uwsgi_opt_set_str, &uwsgi.sni_dir, 0},
 	{"sni-dir-ciphers", required_argument, 0, "set ssl ciphers for sni-dir option", uwsgi_opt_set_str, &uwsgi.sni_dir_ciphers, 0},
 	{"ssl-enable3", no_argument, 0, "enable SSLv3 (insecure)", uwsgi_opt_true, &uwsgi.sslv3, 0},
-	{"ssl-option", no_argument, 0, "set a raw ssl option (numeric value)", uwsgi_opt_add_string_list, &uwsgi.ssl_options, 0},
+	{"ssl-enable-sslv3", no_argument, 0, "enable SSLv3 (insecure)", uwsgi_opt_true, &uwsgi.sslv3, 0},
+	{"ssl-enable-tlsv1", no_argument, 0, "enable TLSv1 (insecure)", uwsgi_opt_true, &uwsgi.tlsv1, 0},
+	{"ssl-option", required_argument, 0, "set a raw ssl option (numeric value)", uwsgi_opt_add_string_list, &uwsgi.ssl_options, 0},
 #ifdef UWSGI_PCRE
 	{"sni-regexp", required_argument, 0, "add an SNI-governed SSL context (the key is a regexp)", uwsgi_opt_sni, NULL, 0},
 #endif
@@ -804,7 +808,7 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"log-slow", required_argument, 0, "log requests slower than the specified number of milliseconds", uwsgi_opt_set_int, &uwsgi.logging_options.slow, 0},
 	{"log-4xx", no_argument, 0, "log requests with a 4xx response", uwsgi_opt_true, &uwsgi.logging_options._4xx, 0},
 	{"log-5xx", no_argument, 0, "log requests with a 5xx response", uwsgi_opt_true, &uwsgi.logging_options._5xx, 0},
-	{"log-big", required_argument, 0, "log requestes bigger than the specified size", uwsgi_opt_set_64bit,  &uwsgi.logging_options.big, 0},
+	{"log-big", required_argument, 0, "log requests bigger than the specified size", uwsgi_opt_set_64bit,  &uwsgi.logging_options.big, 0},
 	{"log-sendfile", required_argument, 0, "log sendfile requests", uwsgi_opt_true, &uwsgi.logging_options.sendfile, 0},
 	{"log-ioerror", required_argument, 0, "log requests with io errors", uwsgi_opt_true, &uwsgi.logging_options.ioerror, 0},
 	{"log-micros", no_argument, 0, "report response time in microseconds instead of milliseconds", uwsgi_opt_true, &uwsgi.log_micros, 0},
@@ -1067,6 +1071,7 @@ static struct uwsgi_option uwsgi_base_options[] = {
 	{"config-py", no_argument, 0, "dump the uwsgiconfig.py used for building the core  (useful for building external plugins)", uwsgi_opt_config_py, NULL, UWSGI_OPT_IMMEDIATE},
 	{"build-plugin", required_argument, 0, "build a uWSGI plugin for the current binary", uwsgi_opt_build_plugin, NULL, UWSGI_OPT_IMMEDIATE},
 	{"version", no_argument, 0, "print uWSGI version", uwsgi_opt_print, UWSGI_VERSION, 0},
+	{"response-headers-limit", required_argument, 0, "set response header maximum size (default: 64k)", uwsgi_opt_set_int, &uwsgi.response_header_limit, 0},
 	{0, 0, 0, 0, 0, 0, 0}
 };
 
@@ -1477,7 +1482,7 @@ void uwsgi_nuclear_blast() {
 // brutally reload
 void reap_them_all(int signum) {
 
-	// avoid reace condition in lazy mode
+	// avoid race condition in lazy mode
 	if (uwsgi_instance_is_reloading)
 		return;
 
@@ -1821,8 +1826,8 @@ static void fixup_argv_and_environ(int argc, char **argv, char **environ, char *
 	uwsgi.argv = uwsgi_malloc(sizeof(char *) * (argc + 1));
 
 	for (i = 0; i < argc; i++) {
-		if (i == 0 || argv[0] + uwsgi.max_procname + 1 == argv[i]) {
-			uwsgi.max_procname += strlen(argv[i]) + 1;
+		if (i == 0 || argv[0] + uwsgi.argv_len == argv[i]) {
+			uwsgi.argv_len += strlen(argv[i]) + 1;
 		}
 		uwsgi.argv[i] = strdup(argv[i]);
 	}
@@ -1830,13 +1835,10 @@ static void fixup_argv_and_environ(int argc, char **argv, char **environ, char *
 	// required by execve
 	uwsgi.argv[i] = NULL;
 
-	uwsgi.max_procname++;
-
 	for (i = 0; environ[i] != NULL; i++) {
-		// useless
-		//if ((environ[0] + uwsgi.max_procname + 1) == environ[i]) {
-		uwsgi.max_procname += strlen(environ[i]) + 1;
-		//}
+		if (environ[0] + uwsgi.environ_len == environ[i]) {
+			uwsgi.environ_len += strlen(environ[i]) + 1;
+		}
 		env_count++;
 	}
 
@@ -1851,7 +1853,8 @@ static void fixup_argv_and_environ(int argc, char **argv, char **environ, char *
 	uwsgi.environ[env_count] = NULL;
 
 #ifdef UWSGI_DEBUG
-	uwsgi_log("max space for custom process name = %d\n", uwsgi.max_procname);
+	uwsgi_log("total length of argv = %u\n", (unsigned int)uwsgi.argv_len);
+	uwsgi_log("total length of environ = %u\n", (unsigned int)uwsgi.environ_len);
 #endif
 	//environ = uwsgi.environ;
 
@@ -2256,6 +2259,9 @@ void uwsgi_setup(int argc, char *argv[], char *envp[]) {
 #endif
 	uwsgi.binary_path = uwsgi_get_binary_path(argv[0]);
 
+	if(uwsgi.response_header_limit == 0)
+		uwsgi.response_header_limit = UMAX16;
+
 	// ok we can now safely play with argv and environ
 	fixup_argv_and_environ(argc, argv, environ, envp);
 
@@ -2319,7 +2325,7 @@ configure:
 	uwsgi_commandline_config();
 
 	// second pass: ENVs
-	uwsgi_apply_config_pass('$', (char *(*)(char *)) getenv);
+	uwsgi_apply_config_pass('$', (char *(*)(char *)) uwsgi_getenv_with_default);
 
 	// third pass: FILEs
 	uwsgi_apply_config_pass('@', uwsgi_at_file_read);
@@ -2858,7 +2864,10 @@ int uwsgi_start(void *v_argv) {
 
 	// setup locking
 	uwsgi_setup_locking();
-	if (uwsgi.use_thunder_lock) {
+	if (uwsgi.use_thunder_lock && uwsgi.use_thunder_lock_watchdog) {
+		uwsgi_log_initial("thunder lock: enabled (with robust mutex watchdog)\n");
+	}
+	else if (uwsgi.use_thunder_lock) {
 		uwsgi_log_initial("thunder lock: enabled\n");
 	}
 	else {
@@ -3460,7 +3469,7 @@ int uwsgi_run() {
 	// eventually maps (or disable) sockets for the  worker
 	uwsgi_map_sockets();
 
-	// eventually set cpu affinity poilicies (OS-dependent)
+	// eventually set cpu affinity policies (OS-dependent)
 	uwsgi_set_cpu_affinity();
 
 	if (uwsgi.worker_exec) {

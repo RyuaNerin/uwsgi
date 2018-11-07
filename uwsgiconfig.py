@@ -344,7 +344,7 @@ def build_uwsgi(uc, print_only=False, gcll=None):
     last_cflags_ts = 0
 
     if os.path.exists('uwsgibuild.lastcflags'):
-        ulc = open('uwsgibuild.lastcflags', 'r')
+        ulc = open('uwsgibuild.lastcflags')
         last_cflags = ulc.read()
         ulc.close()
         if uwsgi_cflags != last_cflags:
@@ -564,13 +564,19 @@ def build_uwsgi(uc, print_only=False, gcll=None):
             t.join()
 
     print("*** uWSGI linking ***")
-    ldline = "%s -o %s %s %s %s" % (
-        GCC,
-        bin_name,
-        ' '.join(uniq_warnings(ldflags)),
-        ' '.join(map(add_o, gcc_list)),
-        ' '.join(uniq_warnings(libs))
-    )
+    if '--static' in ldflags:
+        ldline = 'ar cru %s %s' % (
+            bin_name,
+            ' '.join(map(add_o, gcc_list))
+        )
+    else:
+        ldline = "%s -o %s %s %s %s" % (
+            GCC,
+            bin_name,
+            ' '.join(uniq_warnings(ldflags)),
+            ' '.join(map(add_o, gcc_list)),
+            ' '.join(uniq_warnings(libs))
+        )
     print(ldline)
     ret = os.system(ldline)
     if ret != 0:
@@ -624,7 +630,7 @@ class uConf(object):
             print("using profile: %s" % filename)
 
         if os.path.exists('uwsgibuild.lastprofile'):
-            ulp = open('uwsgibuild.lastprofile', 'r')
+            ulp = open('uwsgibuild.lastprofile')
             last_profile = ulp.read()
             ulp.close()
             if last_profile != filename:
@@ -634,7 +640,10 @@ class uConf(object):
         ulp.write(filename)
         ulp.close()
 
-        self.config.readfp(open_profile(filename))
+        if hasattr(self.config, 'read_file'):
+            self.config.read_file(open_profile(filename))
+        else:
+            self.config.readfp(open_profile(filename))
         self.gcc_list = [
             'core/utils', 'core/protocol', 'core/socket', 'core/logging',
             'core/master', 'core/master_utils', 'core/emperor', 'core/notify',
@@ -775,7 +784,10 @@ class uConf(object):
             for option in self.config.options('uwsgi'):
                 interpolations[option] = self.get(option, default='')
             iconfig = ConfigParser.ConfigParser(interpolations)
-            iconfig.readfp(open_profile(inherit))
+            if hasattr(self.config, 'read_file'):
+                iconfig.read_file(open_profile(inherit))
+            else:
+                iconfig.readfp(open_profile(inherit))
 
             for opt in iconfig.options('uwsgi'):
                 if not self.config.has_option('uwsgi', opt):
@@ -831,7 +843,7 @@ class uConf(object):
             self.cflags.append('-DUWSGI_HAS_IFADDRS')
             report['ifaddrs'] = True
 
-        if uwsgi_os in ('FreeBSD', 'OpenBSD'):
+        if uwsgi_os in ('FreeBSD', 'DragonFly', 'OpenBSD'):
             if self.has_include('execinfo.h') or os.path.exists('/usr/local/include/execinfo.h'):
                 if os.path.exists('/usr/local/include/execinfo.h'):
                     self.cflags.append('-I/usr/local/include')
@@ -893,7 +905,12 @@ class uConf(object):
                 self.cflags.append('-DNO_SENDFILE')
                 self.cflags.append('-DNO_EXECINFO')
                 self.cflags.append('-DOLD_REALPATH')
-            self.cflags.append('-mmacosx-version-min=10.5')
+            darwin_major = int(uwsgi_os_k.split('.')[0])
+            # MacOS High Sierra and above: since XCode 10 there's no libgcc_s.10.5
+            if darwin_major >= 17:
+                self.cflags.append('-mmacosx-version-min=10.9')
+            else:
+                self.cflags.append('-mmacosx-version-min=10.5')
             if GCC in ('clang',):
                 self.libs.remove('-rdynamic')
 
@@ -1053,7 +1070,10 @@ class uConf(object):
         report['malloc'] = self.get('malloc_implementation')
 
         if self.get('as_shared_library'):
-            self.ldflags.append('-shared')
+            if self.get('as_shared_library') == 'static':
+                self.ldflags.append('--static')
+            else:
+                self.ldflags.append('-shared')
             # on cygwin we do not need PIC (it is implicit)
             if not uwsgi_os.startswith('CYGWIN'):
                 self.ldflags.append('-fPIC')
@@ -1300,7 +1320,7 @@ class uConf(object):
         if self.get('xml'):
             if self.get('xml') == 'auto':
                 xmlconf = spcall('xml2-config --libs')
-                if xmlconf:
+                if xmlconf and uwsgi_os != 'Darwin':
                     self.libs.append(xmlconf)
                     xmlconf = spcall("xml2-config --cflags")
                     self.cflags.append(xmlconf)

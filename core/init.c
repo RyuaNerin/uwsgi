@@ -95,6 +95,8 @@ void uwsgi_init_default() {
 	uwsgi.cores = 1;
 	uwsgi.threads = 1;
 
+	uwsgi.need_app = 1;
+
 	// default max number of rpc slot
 	uwsgi.rpc_max = 64;
 
@@ -152,6 +154,7 @@ void uwsgi_init_default() {
 	// 1 day of tolerance
 	uwsgi.subscriptions_sign_check_tolerance = 3600 * 24;
 	uwsgi.ssl_sessions_timeout = 300;
+	uwsgi.ssl_verify_depth = 1;
 #endif
 
 	uwsgi.alarm_freq = 3;

@@ -277,6 +277,11 @@ static void uwsgi_parse_http_range(char *buf, uint16_t len, enum uwsgi_range *pa
 
 static int uwsgi_proto_check_10(struct wsgi_request *wsgi_req, char *key, char *buf, uint16_t len) {
 
+	if (uwsgi.honour_range && !uwsgi_proto_key("HTTP_IF_RANGE", 13)) {
+		wsgi_req->if_range = buf;
+		wsgi_req->if_range_len = len;
+	}
+
 	if (uwsgi.honour_range && !uwsgi_proto_key("HTTP_RANGE", 10)) {
 		uwsgi_parse_http_range(buf, len, &wsgi_req->range_parsed,
 				&wsgi_req->range_from, &wsgi_req->range_to);
@@ -286,14 +291,14 @@ static int uwsgi_proto_check_10(struct wsgi_request *wsgi_req, char *key, char *
 		return 0;
 	}
 
-	if (!uwsgi_proto_key("UWSGI_FILE", 10)) {
+	if (uwsgi.dynamic_apps && !uwsgi_proto_key("UWSGI_FILE", 10)) {
 		wsgi_req->file = buf;
 		wsgi_req->file_len = len;
 		wsgi_req->dynamic = 1;
 		return 0;
 	}
 
-	if (!uwsgi_proto_key("UWSGI_HOME", 10)) {
+	if (uwsgi.dynamic_apps && !uwsgi_proto_key("UWSGI_HOME", 10)) {
 		wsgi_req->home = buf;
 		wsgi_req->home_len = len;
 		return 0;
@@ -394,14 +399,14 @@ static int uwsgi_proto_check_12(struct wsgi_request *wsgi_req, char *key, char *
 		return 0;
 	}
 
-	if (!uwsgi_proto_key("UWSGI_SCRIPT", 12)) {
+	if (uwsgi.dynamic_apps && !uwsgi_proto_key("UWSGI_SCRIPT", 12)) {
 		wsgi_req->script = buf;
 		wsgi_req->script_len = len;
 		wsgi_req->dynamic = 1;
 		return 0;
 	}
 
-	if (!uwsgi_proto_key("UWSGI_MODULE", 12)) {
+	if (uwsgi.dynamic_apps && !uwsgi_proto_key("UWSGI_MODULE", 12)) {
 		wsgi_req->module = buf;
 		wsgi_req->module_len = len;
 		wsgi_req->dynamic = 1;
@@ -466,7 +471,7 @@ static int uwsgi_proto_check_14(struct wsgi_request *wsgi_req, char *key, char *
 		return 0;
 	}
 
-	if (!uwsgi_proto_key("UWSGI_CALLABLE", 14)) {
+	if (uwsgi.dynamic_apps && !uwsgi_proto_key("UWSGI_CALLABLE", 14)) {
 		wsgi_req->callable = buf;
 		wsgi_req->callable_len = len;
 		wsgi_req->dynamic = 1;
@@ -554,6 +559,12 @@ static int uwsgi_proto_check_22(struct wsgi_request *wsgi_req, char *key, char *
                 wsgi_req->scheme = buf;
                 wsgi_req->scheme_len = len;
         }
+
+	if (!uwsgi_proto_key("HTTP_TRANSFER_ENCODING", 22)) {
+		if (!uwsgi_strnicmp(buf, len, "chunked", 7)) {
+                	wsgi_req->body_is_chunked = 1;
+		}
+	}
 
 	return 0;
 }

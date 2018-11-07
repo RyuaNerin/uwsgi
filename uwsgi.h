@@ -623,6 +623,8 @@ struct uwsgi_daemon {
 	int throttle;
 
 	char *chdir;
+
+	int max_throttle;
 };
 
 struct uwsgi_logger {
@@ -1089,6 +1091,8 @@ struct uwsgi_plugin {
 	void (*vassal_before_exec)(struct uwsgi_instance *, char **);
 
 	int (*worker)(void);
+
+	void (*early_post_jail) (void);
 };
 
 #ifdef UWSGI_PCRE
@@ -1624,6 +1628,9 @@ struct wsgi_request {
 	// used for protocol parsers requiring EOF signaling
 	int proto_parser_eof;
 
+	int body_is_chunked;
+	struct uwsgi_buffer *body_chunked_buf;
+
 	// uWSGI 2.1
 	uint64_t len;
 
@@ -1639,6 +1646,8 @@ struct wsgi_request {
 		struct sockaddr_un sun;
 	} client_addr;
 
+	char * if_range;
+	uint16_t if_range_len;
 };
 
 
@@ -1773,6 +1782,7 @@ struct uwsgi_server {
 	char **orig_argv;
 	char **argv;
 	int argc;
+	// replaced by argv_len + environ_len, kept for ABI compatibility
 	int max_procname;
 	int auto_procname;
 	char **environ;
@@ -2493,6 +2503,7 @@ struct uwsgi_server {
 	pthread_mutex_t lock_static;
 
 	int use_thunder_lock;
+	int use_thunder_lock_watchdog;
 	struct uwsgi_lock_item *the_thunder_lock;
 
 	/* the list of workers */
@@ -2834,6 +2845,16 @@ struct uwsgi_server {
 	char **new_argv;
 	// signal for else
 	int logic_opt_if_failed;
+
+#ifdef UWSGI_SSL
+	int ssl_verify_depth;
+#endif
+
+#ifdef UWSGI_SSL
+	int tlsv1;
+#endif
+
+	size_t response_header_limit;
 	
 	// uWSGI 2.1
 	char *fork_socket;
@@ -2893,9 +2914,10 @@ struct uwsgi_server {
 
 	int http_path_info_no_decode_slashes;
 
-#ifdef UWSGI_SSL
-	int ssl_verify_depth;
-#endif
+	size_t argv_len;
+	size_t environ_len;
+
+	int dynamic_apps;
 };
 
 struct uwsgi_rpc {
@@ -3450,6 +3472,7 @@ void uwsgi_detach_daemons();
 
 void emperor_loop(void);
 char *uwsgi_num2str(int);
+char *uwsgi_float2str(float);
 char *uwsgi_64bit2str(int64_t);
 
 char *magic_sub(char *, size_t, size_t *, char *[]);
@@ -4111,6 +4134,7 @@ char *uwsgi_expand_path(char *, int, char *);
 int uwsgi_try_autoload(char *);
 
 uint64_t uwsgi_micros(void);
+uint64_t uwsgi_millis(void);
 int uwsgi_is_file(char *);
 int uwsgi_is_file2(char *, struct stat *);
 int uwsgi_is_dir(char *);
@@ -4543,7 +4567,7 @@ void uwsgi_daemons_smart_check();
 void uwsgi_setup_thread_req(long, struct wsgi_request *);
 void uwsgi_loop_cores_run(void *(*)(void *));
 
-int uwsgi_kvlist_parse(char *, size_t, char, char, ...);
+int uwsgi_kvlist_parse(char *, size_t, char, int, ...);
 int uwsgi_send_http_stats(int);
 
 ssize_t uwsgi_simple_request_read(struct wsgi_request *, char *, size_t);
@@ -4609,6 +4633,7 @@ struct uwsgi_buffer *uwsgi_websocket_recv(struct wsgi_request *);
 struct uwsgi_buffer *uwsgi_websocket_recv_nb(struct wsgi_request *);
 
 char *uwsgi_chunked_read(struct wsgi_request *, size_t *, int, int);
+struct uwsgi_buffer *uwsgi_chunked_read_smart(struct wsgi_request *, size_t, int);
 
 uint16_t uwsgi_be16(char *);
 uint32_t uwsgi_be32(char *);
@@ -5106,6 +5131,7 @@ int uwsgi_zeus_spawn_instance(struct uwsgi_instance *);
 
 time_t uwsgi_parse_http_date(char *, uint16_t);
 void uwsgi_spooler_cheap_check(void);
+char* uwsgi_getenv_with_default(const char* key);
 
 #define FCGI_BEGIN_REQUEST       1
 #define FCGI_ABORT_REQUEST       2
